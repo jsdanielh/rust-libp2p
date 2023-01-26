@@ -21,6 +21,7 @@
 //! This implements a time-based LRU cache for checking gossipsub message duplicates.
 
 use fnv::FnvHashMap;
+#[cfg(target_family = "wasm")]
 use instant::Instant;
 use std::collections::hash_map::{
     self,
@@ -28,6 +29,8 @@ use std::collections::hash_map::{
 };
 use std::collections::VecDeque;
 use std::time::Duration;
+#[cfg(not(target_family = "wasm"))]
+use wasm_timer::Instant;
 
 struct ExpiringElement<Element> {
     /// The element that expires

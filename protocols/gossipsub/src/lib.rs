@@ -145,6 +145,7 @@ mod behaviour;
 mod config;
 mod gossip_promises;
 mod handler;
+#[cfg(target_family = "wasm")]
 mod interval;
 mod mcache;
 pub mod metrics;

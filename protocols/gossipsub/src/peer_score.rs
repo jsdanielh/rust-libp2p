@@ -24,12 +24,15 @@
 use crate::metrics::{Metrics, Penalty};
 use crate::time_cache::TimeCache;
 use crate::{MessageId, TopicHash};
+#[cfg(target_family = "wasm")]
 use instant::Instant;
 use libp2p_core::PeerId;
 use log::{debug, trace, warn};
 use std::collections::{hash_map, HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::Duration;
+#[cfg(not(target_family = "wasm"))]
+use wasm_timer::Instant;
 
 mod params;
 use crate::error::ValidationError;

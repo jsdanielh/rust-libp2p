@@ -21,10 +21,13 @@
 use crate::error::ValidationError;
 use crate::peer_score::RejectReason;
 use crate::MessageId;
+#[cfg(target_family = "wasm")]
 use instant::Instant;
 use libp2p_core::PeerId;
 use log::debug;
 use std::collections::HashMap;
+#[cfg(not(target_family = "wasm"))]
+use wasm_timer::Instant;
 
 /// Tracks recently sent `IWANT` messages and checks if peers respond to them.
 #[derive(Default)]
