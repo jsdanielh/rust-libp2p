@@ -23,7 +23,7 @@
 use bytes::BytesMut;
 use futures::task::AtomicWaker;
 use futures::{future::Ready, io, prelude::*};
-use js_sys::Array;
+use js_sys::Function;
 use libp2p_core::{
     multiaddr::{Multiaddr, Protocol},
     transport::{ListenerId, TransportError, TransportEvent},
@@ -35,7 +35,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::{pin::Pin, task::Context, task::Poll};
 use wasm_bindgen::{prelude::*, JsCast};
-use web_sys::{window, CloseEvent, Event, MessageEvent, WebSocket};
+use web_sys::{CloseEvent, Event, MessageEvent, WebSocket};
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = "setTimeout", catch)]
+    fn set_timeout(handler: &Function, timeout: i32) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = "clearTimeout")]
+    fn clear_timeout(handle: JsValue) -> JsValue;
+}
 
 /// A Websocket transport that can be used in a wasm environment.
 ///
@@ -188,7 +197,7 @@ struct Inner {
     _on_close_closure: Rc<Closure<dyn FnMut(CloseEvent)>>,
     _on_error_closure: Rc<Closure<dyn FnMut(CloseEvent)>>,
     _on_message_closure: Rc<Closure<dyn FnMut(MessageEvent)>>,
-    buffered_amount_low_interval: i32,
+    buffered_amount_low_interval: Option<JsValue>,
 }
 
 impl Inner {
@@ -300,14 +309,13 @@ impl Connection {
                 }
             }
         });
-        let buffered_amount_low_interval = window()
-            .expect("to have a window")
-            .set_interval_with_callback_and_timeout_and_arguments(
+        let buffered_amount_low_interval = Some(
+            set_timeout(
                 on_buffered_amount_low_closure.as_ref().unchecked_ref(),
                 100, // Chosen arbitrarily and likely worth tuning. Due to low impact of the /ws transport, no further effort was invested at the time.
-                &Array::new(),
             )
-            .expect("to be able to set an interval");
+            .expect("to be able to set an interval"),
+        );
 
         Self {
             inner: SendWrapper::new(Inner {
@@ -439,8 +447,8 @@ impl Drop for Connection {
                 .close_with_code_and_reason(GO_AWAY_STATUS_CODE, "connection dropped");
         }
 
-        window()
-            .expect("to have a window")
-            .clear_interval_with_handle(self.inner.buffered_amount_low_interval)
+        if let Some(id) = self.inner.buffered_amount_low_interval.take() {
+            clear_timeout(id);
+        }
     }
 }
