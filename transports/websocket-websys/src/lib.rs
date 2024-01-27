@@ -257,6 +257,7 @@ impl Connection {
             let close_waker = close_waker.clone();
             move |_| {
                 close_waker.wake();
+                tracing::warn!("Close closure");
             }
         });
         socket.set_onclose(Some(onclose_closure.as_ref().unchecked_ref()));
@@ -266,6 +267,7 @@ impl Connection {
             let errored = errored.clone();
             move |_| {
                 errored.store(true, Ordering::SeqCst);
+                tracing::warn!("Error closure");
             }
         });
         socket.set_onerror(Some(onerror_closure.as_ref().unchecked_ref()));
@@ -435,8 +437,10 @@ impl AsyncWrite for Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         const GO_AWAY_STATUS_CODE: u16 = 1001; // See https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1.
+        tracing::warn!("Dropping connetcion");
 
         if let ReadyState::Connecting | ReadyState::Open = self.inner.ready_state() {
+            tracing::warn!("Closing socket");
             let _ = self
                 .inner
                 .socket
