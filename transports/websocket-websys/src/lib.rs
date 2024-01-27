@@ -439,6 +439,10 @@ impl Drop for Connection {
         const GO_AWAY_STATUS_CODE: u16 = 1001; // See https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4.1.
         tracing::warn!("Dropping connetcion");
 
+        WebContext::new()
+            .expect("to have a window or worker context")
+            .clear_interval_with_handle(self.inner.buffered_amount_low_interval);
+
         if let ReadyState::Connecting | ReadyState::Open = self.inner.ready_state() {
             tracing::warn!("Closing socket");
             let _ = self
@@ -447,8 +451,5 @@ impl Drop for Connection {
                 .close_with_code_and_reason(GO_AWAY_STATUS_CODE, "connection dropped");
         }
 
-        WebContext::new()
-            .expect("to have a window or worker context")
-            .clear_interval_with_handle(self.inner.buffered_amount_low_interval);
     }
 }
