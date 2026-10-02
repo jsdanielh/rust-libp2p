@@ -358,6 +358,9 @@ pub struct Behaviour<
     /// Counts the number of `IHAVE` received from each peer since the last heartbeat.
     count_received_ihave: HashMap<PeerId, usize>,
 
+    /// Counts the number of `IDONTWANT` received from each peer since the last heartbeat.
+    count_received_idontwant: HashMap<PeerId, usize>,
+
     /// Counts the number of `IWANT` that we sent the each peer since the last heartbeat.
     count_sent_iwant: HashMap<PeerId, usize>,
 
@@ -482,6 +485,7 @@ where
             px_peers: HashSet::new(),
             peer_score: PeerScoreState::Disabled,
             count_received_ihave: HashMap::new(),
+            count_received_idontwant: HashMap::new(),
             count_sent_iwant: HashMap::new(),
             connected_peers: HashMap::new(),
             config,
@@ -1476,8 +1480,22 @@ where
 
         let message_ids: Vec<MessageId> = idontwant_msgs.into_iter().flatten().collect();
 
+        // Removing messages from the queue walks the whole queue, so only do it for a limited
+        // number of IDONTWANT per heartbeat. Past the limit the ids are still recorded below.
+        let peer_idontwant = self.count_received_idontwant.entry(*peer_id).or_insert(0);
+        *peer_idontwant += 1;
         #[allow(unused)]
-        let removed = peer.messages.remove_data_messages(&message_ids);
+        let removed = if *peer_idontwant <= self.config.max_idontwant_messages_heartbeat() {
+            peer.messages.remove_data_messages(&message_ids)
+        } else {
+            tracing::debug!(
+                peer=%peer_id,
+                "IDONTWANT: peer has sent too many ({}) within this heartbeat interval; \
+            not removing queued messages",
+                *peer_idontwant
+            );
+            0
+        };
 
         #[cfg(feature = "metrics")]
         if let Some(metrics) = self.metrics.as_mut() {
@@ -2334,9 +2352,10 @@ where
         // clean up expired backoffs
         self.backoffs.heartbeat();
 
-        // clean up ihave counters
+        // clean up ihave and idontwant counters
         self.count_sent_iwant.clear();
         self.count_received_ihave.clear();
+        self.count_received_idontwant.clear();
 
         // apply iwant penalties
         self.apply_iwant_penalties();

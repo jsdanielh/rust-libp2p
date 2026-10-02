@@ -27,7 +27,7 @@ use libp2p_swarm::{ConnectionId, NetworkBehaviour};
 
 use super::DefaultBehaviourTestBuilder;
 use crate::{
-    config::Config,
+    config::{Config, ConfigBuilder},
     handler::HandlerEvent,
     transform::DataTransform,
     types::{ControlAction, IDontWant, MessageId, PeerKind, RawMessage, RpcIn, RpcOut},
@@ -329,4 +329,41 @@ fn idontwant_removes_queued_messages() {
     let peer = &gs.connected_peers[&peers[0]];
     assert!(peer.dont_send.contains_key(&ids[0]));
     assert!(peer.dont_send.contains_key(&ids[1]));
+}
+
+/// Test that only `max_idontwant_messages_heartbeat` IDONTWANT messages per heartbeat remove
+/// queued messages, while the ids of all of them are recorded.
+#[test]
+fn idontwant_queue_removal_limited_per_heartbeat() {
+    let config = ConfigBuilder::default()
+        .max_idontwant_messages_heartbeat(1)
+        .build()
+        .unwrap();
+    let (mut gs, peers, mut queues, _topic_hashes) = DefaultBehaviourTestBuilder::default()
+        .peer_no(1)
+        .topics(vec![String::from("topic1")])
+        .to_subscribe(true)
+        .gs_config(config)
+        .peer_kind(PeerKind::Gossipsubv1_2)
+        .create_network();
+
+    let ids: Vec<_> = (0..3u8).map(|i| MessageId::new(&[i])).collect();
+    queue_message(&mut gs, &peers[0], &ids[0]);
+    queue_message(&mut gs, &peers[0], &ids[1]);
+
+    // The first IDONTWANT removes its message, the second one is over the limit.
+    receive_idontwant(&mut gs, &peers[0], vec![vec![ids[0].clone()]]);
+    receive_idontwant(&mut gs, &peers[0], vec![vec![ids[1].clone()]]);
+
+    // The limit resets with the heartbeat.
+    gs.heartbeat();
+    queue_message(&mut gs, &peers[0], &ids[2]);
+    receive_idontwant(&mut gs, &peers[0], vec![vec![ids[2].clone()]]);
+
+    let mut queue = queues.remove(&peers[0]).unwrap();
+    assert_eq!(queued_message_ids(&mut queue), vec![ids[1].clone()]);
+    let peer = &gs.connected_peers[&peers[0]];
+    for id in &ids {
+        assert!(peer.dont_send.contains_key(id));
+    }
 }

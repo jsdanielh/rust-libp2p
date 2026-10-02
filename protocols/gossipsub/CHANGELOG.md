@@ -1,4 +1,9 @@
 ## 0.51.0
+- Remove the ids of all IDONTWANT messages in an RPC from the peer's send queue in one pass, and add
+  `Config::max_idontwant_messages_heartbeat` (default `1000`) to limit how many IDONTWANT messages
+  per peer and heartbeat remove queued messages. Ids past the limit are still recorded, so the
+  messages are not forwarded to the peer later.
+
 - Look up the ids of a received IDONTWANT in a `HashSet` when removing them from the peer's send
   queue, so the cost is O(queue + ids) instead of O(queue * ids).
 

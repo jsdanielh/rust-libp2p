@@ -129,6 +129,7 @@ pub struct Config {
     max_control_message_size: usize,
     max_control_messages_sent: usize,
     max_ihave_messages_heartbeat: usize,
+    max_idontwant_messages_heartbeat: usize,
     iwant_followup_time: Duration,
     connection_handler_queue_len: usize,
     connection_handler_publish_duration: Duration,
@@ -490,6 +491,14 @@ impl Config {
     pub fn max_ihave_messages_heartbeat(&self) -> usize {
         self.max_ihave_messages_heartbeat
     }
+
+    /// The maximum number of IDONTWANT messages from a peer within a heartbeat that remove the
+    /// listed messages from our send queue to that peer. Further IDONTWANT messages in the same
+    /// heartbeat are still recorded, so we don't forward the listed messages to the peer later,
+    /// but messages already in the queue are sent. The default is 1000.
+    pub fn max_idontwant_messages_heartbeat(&self) -> usize {
+        self.max_idontwant_messages_heartbeat
+    }
 }
 
 impl Default for Config {
@@ -556,6 +565,7 @@ impl Default for ConfigBuilder {
                 max_control_messages_sent: 5000,
                 max_control_message_size: 16384, // 16KB
                 max_ihave_messages_heartbeat: 10,
+                max_idontwant_messages_heartbeat: 1000,
                 iwant_followup_time: Duration::from_secs(3),
                 connection_handler_queue_len: 5000,
                 connection_handler_publish_duration: Duration::from_secs(5),
@@ -994,6 +1004,15 @@ impl ConfigBuilder {
         self
     }
 
+    /// The maximum number of IDONTWANT messages from a peer within a heartbeat that remove the
+    /// listed messages from our send queue to that peer. Further IDONTWANT messages in the same
+    /// heartbeat are still recorded, so we don't forward the listed messages to the peer later,
+    /// but messages already in the queue are sent. The default is 1000.
+    pub fn max_idontwant_messages_heartbeat(&mut self, max_idontwant_messages: usize) -> &mut Self {
+        self.config.max_idontwant_messages_heartbeat = max_idontwant_messages;
+        self
+    }
+
     /// The maximum number of control messages (IHAVE/IWANT) we will send/receive to/from a peer.
     /// This limits the number of IHAVE messages sent during gossip and IWANT requests received.
     /// The default is 5000.
@@ -1195,6 +1214,10 @@ impl std::fmt::Debug for Config {
         let _ = builder.field(
             "max_ihave_messages_heartbeat",
             &self.max_ihave_messages_heartbeat,
+        );
+        let _ = builder.field(
+            "max_idontwant_messages_heartbeat",
+            &self.max_idontwant_messages_heartbeat,
         );
         let _ = builder.field("iwant_followup_time", &self.iwant_followup_time);
         let _ = builder.field(
