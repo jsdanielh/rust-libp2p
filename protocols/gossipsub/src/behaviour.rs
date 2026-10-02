@@ -1458,6 +1458,41 @@ where
         tracing::trace!(peer=%peer_id, "Completed IHAVE handling for peer");
     }
 
+    /// Handles the IDONTWANT control messages of an RPC. Records the message ids so they are not
+    /// forwarded to the peer, and removes them from the peer's send queue.
+    fn handle_idontwant(&mut self, peer_id: &PeerId, idontwant_msgs: Vec<Vec<MessageId>>) {
+        let Some(peer) = self.connected_peers.get_mut(peer_id) else {
+            tracing::error!(peer = %peer_id,
+                "Could not handle IDONTWANT, peer doesn't exist in connected peer list");
+            return;
+        };
+
+        #[cfg(feature = "metrics")]
+        if let Some(metrics) = self.metrics.as_mut() {
+            for message_ids in &idontwant_msgs {
+                metrics.register_idontwant(message_ids.len());
+            }
+        }
+
+        let message_ids: Vec<MessageId> = idontwant_msgs.into_iter().flatten().collect();
+
+        #[allow(unused)]
+        let removed = peer.messages.remove_data_messages(&message_ids);
+
+        #[cfg(feature = "metrics")]
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.register_removed_messages(removed);
+        }
+
+        for message_id in message_ids {
+            peer.dont_send.insert(message_id, Instant::now());
+            // Don't exceed capacity.
+            if peer.dont_send.len() > IDONTWANT_CAP {
+                peer.dont_send.pop_front();
+            }
+        }
+    }
+
     /// Handles an IWANT control message. Checks our cache of messages. If the message exists it is
     /// forwarded to the requesting peer.
     fn handle_iwant(&mut self, peer_id: &PeerId, iwant_msgs: Vec<MessageId>) {
@@ -3590,6 +3625,7 @@ where
                 let mut ihave_msgs = vec![];
                 let mut graft_msgs = vec![];
                 let mut prune_msgs = vec![];
+                let mut idontwant_msgs = vec![];
                 for control_msg in rpc.control_msgs {
                     match control_msg {
                         ControlAction::IHave(IHave {
@@ -3608,30 +3644,7 @@ where
                             backoff,
                         }) => prune_msgs.push((topic_hash, peers, backoff)),
                         ControlAction::IDontWant(IDontWant { message_ids }) => {
-                            let Some(peer) = self.connected_peers.get_mut(&propagation_source)
-                            else {
-                                tracing::error!(peer = %propagation_source,
-                                    "Could not handle IDONTWANT, peer doesn't exist in connected peer list");
-                                continue;
-                            };
-
-                            // Remove messages from the queue.
-                            #[allow(unused)]
-                            let removed = peer.messages.remove_data_messages(&message_ids);
-
-                            #[cfg(feature = "metrics")]
-                            if let Some(metrics) = self.metrics.as_mut() {
-                                metrics.register_idontwant(message_ids.len());
-                                metrics.register_removed_messages(removed);
-                            }
-
-                            for message_id in message_ids {
-                                peer.dont_send.insert(message_id, Instant::now());
-                                // Don't exceed capacity.
-                                if peer.dont_send.len() > IDONTWANT_CAP {
-                                    peer.dont_send.pop_front();
-                                }
-                            }
+                            idontwant_msgs.push(message_ids)
                         }
                         ControlAction::Extensions(extensions) => {
                             if let Some(extensions) = extensions {
@@ -3639,6 +3652,9 @@ where
                             }
                         }
                     }
+                }
+                if !idontwant_msgs.is_empty() {
+                    self.handle_idontwant(&propagation_source, idontwant_msgs);
                 }
                 if !ihave_msgs.is_empty() {
                     self.handle_ihave(&propagation_source, ihave_msgs);
